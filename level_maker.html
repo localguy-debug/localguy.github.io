@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Map Editor — MAP_[N]_() Added</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg:#0b0f16; --ui:#111722; --accent:#0a6eff; --accent2:#0a4b8f;
+    --text:#d7e3ff; --muted:#9fbff6;
+  }
+  html,body{height:100%;margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--text)}
+  body{display:flex;overflow:auto}
+  /* Sidebar */
+  #sidebar{width:260px;background:var(--ui);padding:18px;border-right:2px solid var(--accent2);box-sizing:border-box;display:flex;flex-direction:column;gap:14px;flex-shrink:0}
+  #sidebar h2{margin:0;color:#5faaff;font-size:20px}
+  .tool-section{padding:10px;background:rgba(255,255,255,0.03);border-radius:10px;border:1px solid rgba(10,75,143,0.12)}
+  select,input{padding:8px;border-radius:6px;background:#0f1624;color:#b9d4ff;border:1px solid var(--accent2)}
+  button{padding:8px;border-radius:6px;border:none;background:var(--accent);color:white;cursor:pointer}
+  button:hover{background:#0d63bd}
+  /* Main area */
+  #main{flex-grow:1;display:flex;gap:16px;padding:18px;box-sizing:border-box;align-items:flex-start;min-width:0}
+  /* Canvas wrapper */
+  #canvasWrap{position:relative;background:transparent;flex-shrink:0}
+  /* Fixed display area: 640×640 visual size */
+  canvas#grid{display:block;border:2px solid var(--accent);box-shadow:0 0 10px rgba(10,110,255,0.28);background:#0f141d;image-rendering:pixelated; width:640px; height:640px;}
+  /* Right panel (command output & command list) */
+  #rightPanel{width:360px;background:rgba(17,23,34,0.95);border-left:2px solid var(--accent2);padding:14px;box-sizing:border-box;display:flex;flex-direction:column;gap:12px;flex-shrink:0}
+  #cmdLog{flex:1;overflow:auto;background:rgba(0,0,0,0.18);border:1px solid rgba(10,75,143,0.08);padding:8px;font-size:13px;color:var(--muted);border-radius:6px}
+  .log-ok{color:#9fe39f}
+  .log-err{color:#ffb3b3}
+  #cmdList{max-height:320px;overflow:auto;background:rgba(0,0,0,0.06);padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.02);font-size:13px}
+  pre{white-space:pre-wrap;font-size:13px;color:#b9d4ff}
+  /* Command bar bottom inside canvasWrap */
+  #commandArea{position:relative;margin-top:12px; display:flex; gap:12px; padding:8px 0; box-sizing:border-box; align-items:center}
+  #cmdInput{width:520px;height:36px;padding:8px;border-radius:6px;background:#0f1624;color:#b9d4ff;border:1px solid var(--accent2)}
+  #cmdRun{height:36px;padding:8px 12px}
+  #hint{font-size:12px;color:var(--muted);margin-top:6px}
+  label{font-size:13px;color:#b9d4ff}
+</style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h2>Map Tools</h2>
+
+    <div class="tool-section">
+      <label for="tileType">Tile Type</label>
+      <select id="tileType">
+        <option value="0">Empty</option>
+        <option value="1">Wall</option>
+        <option value="2">Player Spawn</option>
+        <option value="3">End Level</option>
+      </select>
+      <div id="hint">Keys: 1=Empty 2=Wall 3=Spawn 4=End • F = Fill mode • Ctrl+Z = Undo • Right-click = Erase</div>
+    </div>
+
+    <div class="tool-section">
+      <div style="display:flex;gap:8px">
+        <button id="clearBtn">Clear Map</button>
+        <button id="copyBtn">Copy Map</button>
+        <button id="fillToggle">Fill: OFF</button>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:#b9d4ff">Drag to paint; drag while Fill ON to rectangle-fill. Grid auto-scales to fit 640×640.</div>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="canvasWrap">
+      <!-- Internal buffer set to DPR-scaled 640×640; CSS size fixed -->
+      <canvas id="grid" width="640" height="640"></canvas>
+
+      <div id="commandArea">
+        <input id="cmdInput" placeholder="Enter command — e.g. CHECK_FOR_CORRECTION or FILL/WALL = TRUE or TILE_H_L = C_(24) or MAP_[25]_(1111...)" />
+        <button id="cmdRun">Run</button>
+      </div>
+    </div>
+
+    <div id="rightPanel">
+      <div style="font-weight:600;font-size:15px">Command Output</div>
+      <div id="cmdLog" aria-live="polite"></div>
+
+      <div style="font-weight:600;font-size:15px">Commands (list)</div>
+      <div id="cmdList">
+        <pre>
+CHECK_FOR_CORRECTION
+  - Ensures at least one Player Spawn and at least one End Level exist.
+
+FILL/NAME = TRUE
+  - Fill full grid with a tile name.
+  - Examples:
+    FILL/WALL = TRUE
+    FILL/EMPTY = TRUE
+    FILL/SPAWN = TRUE
+    FILL/END = TRUE
+
+TILE_H_L = D
+  - Reset to default grid (20×20).
+
+TILE_H_L = C_(N)
+  - Sets grid to N×N tiles. Tiles automatically scale so the grid fits the 640×640 display.
+
+TILE_H_L = C_(*w, h,)
+  - Sets grid to w×h tiles. Tiles scale to fit.
+
+MAP_[COLS]_(<digits>)
+  - Loads a map from a single stream of digits (no commas).
+  - Example: MAP_[25]_(11111...000...) — digits are 0/1/2/3 (Empty/Wall/Spawn/End).
+  - The editor slices the stream into rows of length COLS and pads the final row with 0s if needed.
+
+Notes:
+ - Keybinds: 1-4 select tiles, F toggles fill, Ctrl+Z undoes.
+ - Right-click erases (no context menu).
+        </pre>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ------------------------
+   Config
+   ------------------------*/
+const DEFAULT_GRID = 20;          // default grid 20x20
+const DISPLAY_PX = 640;           // fixed visual display area (CSS)
+const DPR = Math.max(1, window.devicePixelRatio || 1);
+
+/* Logical grid */
+let COLS = DEFAULT_GRID;
+let ROWS = DEFAULT_GRID;
+
+/* Elements */
+const canvas = document.getElementById('grid');
+const ctx = canvas.getContext('2d');
+
+const tileTypeSelect = document.getElementById('tileType');
+const clearBtn = document.getElementById('clearBtn');
+const copyBtn = document.getElementById('copyBtn');
+const fillToggleBtn = document.getElementById('fillToggle');
+
+const cmdInput = document.getElementById('cmdInput');
+const cmdRun = document.getElementById('cmdRun');
+const cmdLog = document.getElementById('cmdLog');
+
+/* State */
+let map = [];
+let currentTile = parseInt(tileTypeSelect.value,10);
+let fillMode = false;
+let undoStack = [];
+let action = null; // {type, start}
+
+/* Ensure canvas internal buffer uses DPR for crisp rendering, while CSS size remains 640×640 */
+function setupCanvasBuffer() {
+  canvas.width = DISPLAY_PX * DPR;
+  canvas.height = DISPLAY_PX * DPR;
+  canvas.style.width = DISPLAY_PX + 'px';
+  canvas.style.height = DISPLAY_PX + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0); // draw in CSS pixels
+}
+
+/* Logging helper */
+function log(msg, cls) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  if (cls === 'ok') el.className = 'log-ok';
+  if (cls === 'err') el.className = 'log-err';
+  cmdLog.prepend(el);
+}
+
+/* Initialize map */
+function createMap(cols, rows, fill=0) {
+  // preserve top-left content where possible
+  const newCols = Math.max(1, Math.floor(cols));
+  const newRows = Math.max(1, Math.floor(rows));
+  const newMap = Array.from({length: newRows}, ()=> Array(newCols).fill(fill));
+  for (let y=0;y<Math.min(newRows, map.length); y++){
+    for (let x=0;x<Math.min(newCols, map[0].length); x++){
+      newMap[y][x] = map[y][x];
+    }
+  }
+  COLS = newCols; ROWS = newRows;
+  map = newMap;
+}
+
+/* Compute tile size (in CSS pixels) so the entire grid fits exactly in DISPLAY_PX */
+function getTileSizeCSS() {
+  return {
+    w: DISPLAY_PX / COLS,
+    h: DISPLAY_PX / ROWS
+  };
+}
+
+/* Convert CSS pixels to canvas internal pixels automatically by DPR inside getCellFromEvent */
+function getCellFromEvent(ev){
+  const rect = canvas.getBoundingClientRect();
+  // canvas CSS size is DISPLAY_PX x DISPLAY_PX
+  const cssX = ev.clientX - rect.left;
+  const cssY = ev.clientY - rect.top;
+  const t = getTileSizeCSS();
+  const cx = Math.floor(cssX / t.w);
+  const cy = Math.floor(cssY / t.h);
+  if (cx < 0 || cy < 0 || cx >= COLS || cy >= ROWS) return null;
+  return {x:cx, y:cy};
+}
+
+/* Draw whole grid (we draw scaled to DISPLAY_PX using CSS-based tile sizes) */
+function draw(){
+  ctx.clearRect(0,0,DISPLAY_PX, DISPLAY_PX);
+  const tile = getTileSizeCSS();
+  for (let y=0;y<ROWS;y++){
+    for (let x=0;x<COLS;x++){
+      ctx.fillStyle = tileColor(map[y][x]);
+      ctx.fillRect(Math.round(x*tile.w), Math.round(y*tile.h), Math.ceil(tile.w), Math.ceil(tile.h));
+      ctx.strokeStyle = 'rgba(10,110,255,0.55)'; ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(x*tile.w)+0.5, Math.round(y*tile.h)+0.5, Math.ceil(tile.w)-1, Math.ceil(tile.h)-1);
+    }
+  }
+}
+
+/* Draw single cell fast (re-draw that cell) */
+function drawCell(x,y) {
+  const tile = getTileSizeCSS();
+  ctx.fillStyle = tileColor(map[y][x]);
+  ctx.fillRect(Math.round(x*tile.w), Math.round(y*tile.h), Math.ceil(tile.w), Math.ceil(tile.h));
+  ctx.strokeStyle = 'rgba(10,110,255,0.55)'; ctx.lineWidth = 1;
+  ctx.strokeRect(Math.round(x*tile.w)+0.5, Math.round(y*tile.h)+0.5, Math.ceil(tile.w)-1, Math.ceil(tile.h)-1);
+}
+
+/* tile color mapping */
+function tileColor(v){
+  if (v===1) return '#1d2a38';
+  if (v===2) return '#0ac';
+  if (v===3) return '#ffd700';
+  return '#0f141d';
+}
+
+/* Paint / Erase / Fill */
+function paintCell(x,y){
+  if (map[y][x] === currentTile) return;
+  map[y][x] = currentTile;
+  drawCell(x,y);
+}
+function eraseCell(x,y){
+  if (map[y][x] === 0) return;
+  map[y][x] = 0;
+  drawCell(x,y);
+}
+function fillArea(x1,y1,x2,y2){
+  const minX = Math.min(x1,x2), maxX = Math.max(x1,x2);
+  const minY = Math.min(y1,y2), maxY = Math.max(y1,y2);
+  for (let yy=minY; yy<=maxY; yy++) for (let xx=minX; xx<=maxX; xx++) map[yy][xx] = currentTile;
+  draw();
+}
+
+/* Fill whole map by name */
+function fillWholeByName(name){
+  const n = name.toUpperCase();
+  let v = null;
+  if (n === 'WALL') v = 1;
+  if (n === 'EMPTY') v = 0;
+  if (n === 'END' || n === 'ENDLEVEL' || n === 'END_LEVEL') v = 3;
+  if (n === 'SPAWN' || n === 'PLAYER') v = 2;
+  if (v === null) { log('Unknown fill target: ' + name, 'err'); return; }
+  saveState();
+  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++) map[y][x]=v;
+  draw();
+  log('Filled map with ' + name.toUpperCase(), 'ok');
+}
+
+/* Check for correction */
+function checkForCorrection(){
+  let spawn=0,end=0;
+  for (let y=0;y<ROWS;y++) for (let x=0;x<COLS;x++){ if (map[y][x]===2) spawn++; if (map[y][x]===3) end++; }
+  if (spawn<1) log('ERROR: No Player Spawn found.','err'); else log('Player spawn OK ('+spawn+')','ok');
+  if (end<1) log('ERROR: No End Level found.','err'); else log('End Level OK ('+end+')','ok');
+}
+
+/* Undo */
+function saveState(){
+  const snap = JSON.stringify(map);
+  if (undoStack.length===0 || undoStack[undoStack.length-1] !== snap) {
+    undoStack.push(snap);
+    if (undoStack.length>200) undoStack.shift();
+  }
+}
+function undo(){
+  if (undoStack.length===0){ log('Nothing to undo','err'); return; }
+  map = JSON.parse(undoStack.pop());
+  draw(); log('Undo','ok');
+}
+
+/* -------------------------
+   MAP_[COLS]_(digits...) parsing
+   - Example: MAP_[25]_(1111100000...)
+   - digits may include whitespace/newlines; they must be only 0-3 after stripping whitespace.
+   - If the stream length isn't a multiple of cols, final row is padded with zeros.
+*/
+function parseMapCommand(param) {
+  // param already is the parentheses content possibly including digits and whitespace
+  // remove whitespace and newlines
+  const cleaned = param.replace(/\s+/g, '');
+  if (cleaned.length === 0) {
+    log('MAP: empty map data', 'err');
+    return false;
+  }
+  // ensure only digits 0-3
+  if (!/^[0-3]+$/.test(cleaned)) {
+    log('MAP: map data must only contain digits 0-3 (no commas).', 'err');
+    return false;
+  }
+  return cleaned;
+}
+
+/* Apply MAP_ command */
+function applyMapCommand(colsParam, contentParam) {
+  const cols = Math.max(1, parseInt(colsParam, 10));
+  const cleaned = parseMapCommand(contentParam);
+  if (!cleaned) return;
+  const total = cleaned.length;
+  const rows = Math.ceil(total / cols);
+  saveState();
+  createMap(cols, rows, 0);
+  // fill row-major
+  for (let i = 0; i < total; i++) {
+    const ch = cleaned.charAt(i);
+    const v = parseInt(ch, 10);
+    const x = i % cols;
+    const y = Math.floor(i / cols);
+    if (y < ROWS && x < COLS) map[y][x] = v;
+  }
+  // remaining cells already zero
+  draw();
+  log('MAP loaded: ' + COLS + '×' + ROWS + ' (stream length ' + total + ')', 'ok');
+}
+
+/* TILE_H_L parsing and behavior:
+   - D: reset grid to DEFAULT_GRID × DEFAULT_GRID
+   - C_(N): set grid to N × N tiles (tiles auto-scale to fit DISPLAY_PX)
+   - C_(*w,h,): set grid to w × h tiles
+*/
+function applyTileHLParam(param){
+  param = param.trim();
+  if (/^D$/i.test(param)){
+    createMap(DEFAULT_GRID, DEFAULT_GRID, 0);
+    draw();
+    log('TILE_H_L = D → reset to ' + DEFAULT_GRID + '×' + DEFAULT_GRID, 'ok');
+    return;
+  }
+
+  // C_(N)
+  let m = param.match(/^C_\(\s*([0-9]+)\s*\)$/i);
+  if (m){
+    const n = Math.max(1, parseInt(m[1],10));
+    createMap(n, n, 0);
+    draw();
+    log('TILE_H_L = C_(' + n + ') → grid ' + n + '×' + n + ', tiles scaled to fit', 'ok');
+    return;
+  }
+
+  // C_(*w,h,)
+  m = param.match(/^C_\(\*\s*([0-9]+)\s*,\s*([0-9]+)\s*,?\s*\)$/i);
+  if (m){
+    const w = Math.max(1, parseInt(m[1],10));
+    const h = Math.max(1, parseInt(m[2],10));
+    if (w===0 && h===0){ createMap(DEFAULT_GRID, DEFAULT_GRID, 0); draw(); log('TILE_H_L = C_(*0,0,) → reset','ok'); return; }
+    createMap(w, h, 0);
+    draw();
+    log('TILE_H_L exact → grid ' + w + '×' + h + ', tiles scaled to fit', 'ok');
+    return;
+  }
+
+  log('Unrecognized TILE_H_L parameter: ' + param, 'err');
+}
+
+/* Command parsing */
+function runCommand(raw){
+  const cmd = raw.trim();
+  if (!cmd) return;
+  log('> ' + cmd);
+  // CHECK_FOR_CORRECTION
+  if (/^CHECK_FOR_CORRECTION$/i.test(cmd)){ checkForCorrection(); return; }
+
+  // FILL/NAME = TRUE
+  let m = cmd.match(/^FILL\/([A-Z_]+)\s*=\s*TRUE$/i);
+  if (m){ fillWholeByName(m[1]); return; }
+
+  // TILE_H_L = ...
+  m = cmd.match(/^TILE_H_L\s*=\s*(.+)$/i);
+  if (m){ applyTileHLParam(m[1]); return; }
+
+  // MAP_[COLS]_(...digits...)
+  m = cmd.match(/^MAP_\[\s*([0-9]+)\s*\]_\(\s*([\s0-9]*)\s*\)$/i);
+  if (m) {
+    const colsParam = m[1];
+    const contentParam = m[2];
+    applyMapCommand(colsParam, contentParam);
+    return;
+  }
+
+  log('Unknown command', 'err');
+}
+
+/* UI: run command */
+cmdRun.addEventListener('click', ()=>{ runCommand(cmdInput.value); cmdInput.value=''; });
+cmdInput.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ runCommand(cmdInput.value); cmdInput.value=''; } });
+
+/* Pointer painting (robust) */
+canvas.addEventListener('contextmenu', e=>e.preventDefault());
+canvas.addEventListener('pointerdown', ev=>{
+  canvas.setPointerCapture(ev.pointerId);
+  const p = getCellFromEvent(ev); if (!p) return;
+  if (ev.button === 0){
+    if (fillMode){ action = {type:'fill', start:p}; }
+    else { saveState(); action = {type:'paint'}; paintCell(p.x,p.y); }
+  } else if (ev.button === 2){
+    saveState(); action = {type:'erase'}; eraseCell(p.x,p.y);
+  }
+});
+canvas.addEventListener('pointermove', ev=>{
+  const p = getCellFromEvent(ev); if (!p) return;
+  if (!action) return;
+  if (action.type==='paint') paintCell(p.x,p.y);
+  if (action.type==='erase') eraseCell(p.x,p.y);
+});
+canvas.addEventListener('pointerup', ev=>{
+  const p = getCellFromEvent(ev);
+  if (action && action.type==='fill' && action.start && p){ saveState(); fillArea(action.start.x, action.start.y, p.x, p.y); }
+  action = null;
+  try{ canvas.releasePointerCapture(ev.pointerId); }catch(e){}
+});
+
+/* Keybinds & controls */
+tileTypeSelect.addEventListener('change', ()=>{ currentTile = parseInt(tileTypeSelect.value,10); });
+document.addEventListener('keydown', ev=>{
+  const tag = (ev.target && ev.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  if (ev.key === '1'){ currentTile=0; tileTypeSelect.value='0'; }
+  if (ev.key === '2'){ currentTile=1; tileTypeSelect.value='1'; }
+  if (ev.key === '3'){ currentTile=2; tileTypeSelect.value='2'; }
+  if (ev.key === '4'){ currentTile=3; tileTypeSelect.value='3'; }
+  if (ev.key.toLowerCase()==='f'){ fillMode=!fillMode; fillToggleBtn.textContent = 'Fill: ' + (fillMode?'ON':'OFF'); }
+  if (ev.ctrlKey && (ev.key==='z' || ev.key==='Z')){ ev.preventDefault(); undo(); }
+});
+
+/* Sidebar buttons */
+clearBtn.addEventListener('click', ()=>{ saveState(); createMap(COLS, ROWS, 0); draw(); log('Cleared map','ok'); });
+copyBtn.addEventListener('click', async ()=>{
+  const s = map.map(r=>r.join(',')).join('\n');
+  try{ await navigator.clipboard.writeText(s); log('Map copied to clipboard','ok'); } catch(e){ log('Copy failed','err'); }
+});
+fillToggleBtn.addEventListener('click', ()=>{ fillMode=!fillMode; fillToggleBtn.textContent = 'Fill: ' + (fillMode?'ON':'OFF'); });
+
+/* Init */
+setupCanvasBuffer();
+createMap(COLS, ROWS, 0);
+draw();
+log('Editor ready — default grid ' + DEFAULT_GRID + '×' + DEFAULT_GRID + ', display ' + DISPLAY_PX + 'px', 'ok');
+
+/* Expose short API for debugging */
+window.__mapEditor = { map, createMap, runCommand, log };
+
+</script>
+</body>
+</html>
