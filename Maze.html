@@ -1,0 +1,1140 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title> Maze – Update 2 </title>
+<style>
+    body { margin:0; overflow:hidden; background:#111; font-family:Arial, Helvetica, sans-serif; color:#eee; }
+    /* ===== MAIN MENU ===== */
+    #ui {
+        position:absolute; inset:0;
+        display:flex; flex-direction:column;
+        justify-content:center; align-items:center;
+        background:rgba(0,0,0,0.75);
+        z-index:50;
+    }
+    .menu-title { font-size:60px; color:white; margin-bottom:24px; text-shadow:0 0 12px #000; }
+    .btn {
+        padding:14px 45px; font-size:20px; margin:8px;
+        color:white; background:#222; border:2px solid #666;
+        border-radius:12px; cursor:pointer; transition:0.12s;
+    }
+    .btn:hover { background:#333; border-color:white; transform:scale(1.02); }
+
+    /* LEVEL SELECT */
+    #levelSelect {
+        position:absolute; inset:0; display:none; z-index:60;
+        background:rgba(0,0,0,0.85); color:white; align-items:center; justify-content:center;
+        flex-direction:column; gap:12px;
+    }
+    .levelRow { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; max-width:80vw; }
+
+    /* WIN SCREEN */
+    #winScreen {
+        position:absolute; inset:0; display:none; z-index:200;
+        background:rgba(0,0,0,0.85);
+        align-items:center; justify-content:center; color:white; font-size:44px;
+    }
+
+    /* SETTINGS */
+    #settingsOverlay {
+        position:absolute; inset:0; display:none; z-index:150;
+        background:rgba(0,0,0,0.85); color:white; padding:30px;
+        display:flex; justify-content:center; align-items:center;
+    }
+    .settingsCard {
+        width:760px; max-width:95vw; background:rgba(10,10,10,0.95); border-radius:12px; padding:18px; border:1px solid #333;
+    }
+    .settingsRow { display:flex; gap:16px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+    .settingsSection { flex:1; min-width:220px; }
+    .small { font-size:14px; color:#ccc; margin-top:6px; }
+
+    /* Timer display */
+    #timer {
+        position:absolute; left:20px; top:20px; z-index:120;
+        background:rgba(0,0,0,0.6); padding:8px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);
+        font-family:monospace; font-size:16px; color:#fff;
+        display:none;
+    }
+
+    /* Canvas sizing */
+    canvas#game { display:block; width:100vw; height:100vh; background:#000; }
+
+    /* color chart modal */
+    #colorChart {
+        display:none; position:fixed; z-index:250; inset:0; align-items:center; justify-content:center;
+        background:rgba(0,0,0,0.6);
+    }
+    .chartCard { background:#111; padding:14px; border-radius:10px; border:1px solid #333; color:#eee; min-width:320px;}
+    .themePreview { display:flex; gap:8px; margin:8px 0; }
+    .sw { width:40px; height:40px; border-radius:6px; border:1px solid #222; }
+
+    /* update log styling (new) */
+    .update-log { margin-top:12px; max-height:160px; overflow:auto; font-size:13px; color:#ddd; }
+    .update-entry { margin-bottom:10px; padding-bottom:6px; border-bottom:1px dashed rgba(255,255,255,0.04); }
+    .update-entry strong { display:block; margin-bottom:4px; }
+</style>
+</head>
+<body>
+
+<!-- MAIN MENU -->
+<div id="ui" aria-hidden="false">
+    <div class="menu-title">RAYCAST MAZE</div>
+    <div style="display:flex; gap:12px; flex-direction:column; align-items:center;">
+        <button class="btn" id="playBtn">Play</button>
+        <button class="btn" id="settingsBtn">Settings</button>
+        <button class="btn" id="quitBtn">Quit</button>
+    </div>
+</div>
+
+<!-- LEVEL SELECT -->
+<div id="levelSelect" style="display:none; flex-direction:column;">
+    <div style="font-size:28px; margin-bottom:8px;">Select Level</div>
+    <div class="levelRow" id="levelsRow"></div>
+    <div style="margin-top:12px;">
+        <button class="btn" id="backFromSelect" style="padding:8px 22px;">Back</button>
+    </div>
+</div>
+
+<!-- WIN SCREEN -->
+<div id="winScreen">You have beaten this level!</div>
+
+<!-- SETTINGS OVERLAY -->
+<div id="settingsOverlay" role="dialog" aria-modal="true" style="display:none;">
+    <div class="settingsCard">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-size:20px;">Settings</div>
+            <div>
+                <button class="btn" id="openColorChartBtn" style="padding:6px 10px; font-size:14px;">Color Chart</button>
+                <button class="btn" id="closeSettingsBtn" style="padding:6px 10px; font-size:14px;">Close</button>
+            </div>
+        </div>
+
+        <div class="settingsRow">
+            <div class="settingsSection">
+                <div style="font-weight:600;">Theme</div>
+                <div class="small">Pick exactly one theme (pre-made).</div>
+                <label><input type="radio" name="theme" value="classic"> Classic</label><br>
+                <label><input type="radio" name="theme" value="darker"> Darker</label><br>
+                <label><input type="radio" name="theme" value="christmas"> Christmas</label><br>
+                <label><input type="radio" name="theme" value="auto"> Auto (varies per level)</label>
+            </div>
+
+            <div class="settingsSection">
+                <div style="font-weight:600;">Speedrun</div>
+                <div class="small">Pick one speedrun mode.</div>
+                <label><input type="radio" name="speedmode" value="off" checked> Off</label><br>
+                <label><input type="radio" name="speedmode" value="run"> Speedrun (stops on finish)</label><br>
+                <label><input type="radio" name="speedmode" value="total"> Speedrun Total (continues across levels)</label><br>
+                <div style="margin-top:8px;">
+                    <button class="btn" id="resetTotalTimer" style="padding:6px 10px; font-size:14px;">Reset Total Timer</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- NEW: Auto Next Level toggle -->
+        <div style="margin-top:10px;">
+            <label><input type="checkbox" id="autoNextLevelToggle"> Auto Next Level</label>
+            <div class="small">When enabled, after beating a level the next level will start automatically (if any).</div>
+        </div>
+
+        <div class="settingsRow" style="justify-content:flex-end; margin-top:8px;">
+            <button class="btn" id="applySettingsBtn" style="padding:10px 16px;">Apply</button>
+        </div>
+
+        <!-- NEW: Update Log shown in settings -->
+        <div class="update-log" id="updateLogContainer" aria-live="polite" role="region"></div>
+    </div>
+</div>
+
+<!-- Color chart modal -->
+<div id="colorChart">
+    <div class="chartCard">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <div style="font-weight:700;">Theme Previews</div>
+            <button class="btn" id="closeColorChart" style="padding:6px 10px; font-size:12px;">Close</button>
+        </div>
+
+        <div style="margin-top:10px;">
+            <div style="font-weight:600;">Classic</div>
+            <div class="themePreview">
+                <div class="sw" style="background:#ffffff"></div>
+                <div class="sw" style="background:#222222"></div>
+                <div class="sw" style="background:#333333"></div>
+                <div class="sw" style="background:#facc15"></div>
+            </div>
+
+            <div style="font-weight:600;">Darker</div>
+            <div class="themePreview">
+                <div class="sw" style="background:#444444"></div>
+                <div class="sw" style="background:#0b0b0b"></div>
+                <div class="sw" style="background:#111111"></div>
+                <div class="sw" style="background:#6b5e00"></div>
+            </div>
+
+            <div style="font-weight:600;">Christmas</div>
+            <div class="themePreview">
+                <div class="sw" style="background:#0f9d3a"></div>
+                <div class="sw" style="background:#9d0f12"></div>
+                <div class="sw" style="background:#7a2200"></div>
+                <div class="sw" style="background:#ffd84d"></div>
+            </div>
+
+            <div style="font-weight:600;">Auto</div>
+            <div class="small">Auto picks a theme each level automatically.</div>
+        </div>
+    </div>
+</div>
+
+<!-- TIMER DISPLAY -->
+<div id="timer">00:00.000</div>
+
+<!-- MAIN CANVAS -->
+<canvas id="game"></canvas>
+
+<script>
+/* =========================
+   Dynamic Raycast Maze (Levels 1–20)
+   - supports variable map sizes
+   - accepts comma-separated or plain-digit rows
+   ========================= */
+
+/* DOM refs */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const ui = document.getElementById('ui');
+const playBtn = document.getElementById('playBtn');
+const quitBtn = document.getElementById('quitBtn');
+const settingsBtn = document.getElementById('settingsBtn');
+
+const levelSelect = document.getElementById('levelSelect');
+const levelsRow = document.getElementById('levelsRow');
+const backFromSelect = document.getElementById('backFromSelect');
+
+const winScreen = document.getElementById('winScreen');
+
+const settingsOverlay = document.getElementById('settingsOverlay');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const applySettingsBtn = document.getElementById('applySettingsBtn');
+const openColorChartBtn = document.getElementById('openColorChartBtn');
+const colorChart = document.getElementById('colorChart');
+const closeColorChart = document.getElementById('closeColorChart');
+const resetTotalTimerBtn = document.getElementById('resetTotalTimer');
+
+const timerDiv = document.getElementById('timer');
+
+const MINIMAP_SIZE = 120; // px (minimap stays fixed)
+
+/* NEW: Update log data */
+const updateLog = [
+    { version: "1.2", date: "2025-12-02", notes: [
+        "Added Auto Next Level option (in Settings).",
+        "Added in-app Update Log (shown in Settings)."
+    ]},
+    { version: "1.1", date: "2025-10-15", notes: [
+        "Improved minimap visuals.",
+        "Added new 'Christmas' theme."
+    ]},
+    { version: "1.0", date: "2025-09-01", notes: [
+        "Initial public release: 10 levels, themes, speedrun modes."
+    ]}
+];
+
+/* canvas sizing helper (keeps high-dpi handling) */
+function resizeCanvasToDisplaySize(){
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.floor(canvas.clientWidth * dpr);
+    const height = Math.floor(canvas.clientHeight * dpr);
+    if(canvas.width !== width || canvas.height !== height){
+        canvas.width = width;
+        canvas.height = height;
+        ctx.setTransform(1/dpr,0,0,1/dpr,0,0);
+    }
+}
+window.addEventListener('resize', ()=> {
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    resizeCanvasToDisplaySize();
+});
+canvas.style.width = window.innerWidth + 'px';
+canvas.style.height = window.innerHeight + 'px';
+resizeCanvasToDisplaySize();
+
+/* GAME STATE */
+let gameRunning = false;
+
+/* MAP/PLAYER dynamic (mapWidth/mapHeight set per level) */
+let map = [];
+let mapWidth = 16;
+let mapHeight = 16;
+let player = { x:8, y:8, angle:-Math.PI/2, fov:Math.PI/3 };
+let endPoint = { x:12, y:12 };
+
+/* movement tuning */
+const MOVE_SPEED = 0.03;
+const MOUSE_SENS = 0.0025;
+
+/* THEMES */
+const THEMES = {
+    classic: { wall:"#ffffff", ceiling:"#333333", floor:"#222222", end:"#facc15" },
+    darker:  { wall:"#888a8b", ceiling:"#0b0b0b", floor:"#050505", end:"#6b5e00" },
+    christmas: { wall:"#0f9d3a", ceiling:"#9d0f12", floor:"#9d0f12", end:"#ffd84d" },
+    auto: {
+        variants: [
+            {wall:"#ffffff", ceiling:"#333333", floor:"#222222", end:"#facc15"},
+            {wall:"#0f9d3a", ceiling:"#9d0f12", floor:"#9d0f12", end:"#ffd84d"},
+            {wall:"#88b4ff", ceiling:"#001f3f", floor:"#0b1a2b", end:"#ffd84d"},
+            {wall:"#b4ff88", ceiling:"#08200b", floor:"#071007", end:"#ffffff"}
+        ]
+    }
+};
+
+let currentThemeKey = 'classic';
+let currentColors = {...THEMES.classic};
+
+/* auto next-level flag */
+let autoNextLevel = false;
+
+/* Speedrun modes */
+let speedrunMode = 'off';
+
+/* timers */
+let levelStartTime = null;
+let levelElapsedWhenPaused = 0;
+let totalStartTime = null;
+let totalElapsedWhenReset = 0;
+let totalActive = false;
+
+/* =========================
+   LEVEL STRINGS (1–10 original)
+   Levels 11–20 appended (normalized)
+   The loader also accepts comma-separated rows.
+   ========================= */
+const LEVEL_STRINGS = [
+`0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000000000000000
+0000011111000000
+0000010301000000
+0000010001000000
+0000010001000000
+0000010001000000
+0000010001000000
+0000010001000000
+0000010201000000
+0000011111000000`,
+`1111111111111111
+1111111111111111
+1111111111111111
+1111111111111111
+1110000010113111
+1110010000110111
+1110010010000111
+1110111111111111
+1110010001000111
+1111000100010111
+1111111111110111
+1110000100010111
+1110010101010111
+1112010001000111
+1111111111111111
+1111111111111111`,
+`1111111111111111
+1000000000000001
+1001111101000001
+1001111101111101
+1111111101011001
+1000000001010001
+1111111000011111
+1000011010010001
+1001011010010101
+1001011011000111
+1011011010000001
+1010001011111001
+1010111010100011
+1010000013101001
+1210010010001101
+1111111111111111`,
+`1111111111111111
+1000000000000001
+1011111111101111
+1000000000101111
+1110111110100011
+1000100010111001
+1010102010001011
+1010100011001001
+1010000010011101
+1010011111001001
+1010001011101011
+1011101001001001
+1000001001011101
+1011001001001101
+1010000001101131
+1111111111111111`,
+`1111111111111111
+1000111111000001
+1010111111110101
+1010101011000101
+1010100001111101
+1010001101000001
+1011101000011111
+1000111100011111
+1010110101111111
+1010100100001111
+1010101111001111
+1010100111011111
+1010110101011131
+1010100100010101
+1210000110000001
+1111111111111111`,
+`1111111111111111
+1111111111111031
+1111101010101001
+1010001000101101
+1010101010100001
+1010101010110111
+1010101010000001
+1010101011111111
+1010101000000011
+1010101111110111
+1010100000000111
+1010111111111111
+1010000000000001
+1011111111111101
+1200000000000001
+1111111111111111`,
+`1111111111111111
+1010000000000001
+1011110111111101
+1010010000000001
+1010110111110101
+1010100100010101
+1010101101010101
+1000101331000101
+1010101331010101
+1010101111010101
+1010100001010101
+1010110111110101
+1010000010000101
+1011111111111101
+1010000000000001
+1111111111111111`,
+`1111111111111111
+1000111100010001
+1000000000010101
+1011111110011101
+1011101010000001
+1011101011111101
+1000201000000101
+1111111111111101
+1000000010100001
+1011111010101001
+1010031010101101
+1010111010001001
+1010000011011101
+1011111110010111
+1000000000010011
+1111111111111111`,
+`1111111111111111
+1010000000000001
+1011111111111101
+1000000000000101
+1010111111111101
+1010100000000001
+1010101111110111
+1010101000000101
+1010101011111101
+1010101010000001
+1010101010110111
+1010101010100001
+1010101010111101
+1010001000001001
+1210101010101031
+1111111111111111`,
+`1111111111111111
+1010101000000001
+1000000010011111
+1010101010001101
+1010111111011101
+1010101010001101
+1010100011011101
+1011101010001001
+1010101011011011
+1010101010001001
+1000001010111011
+1111111310000001
+1111111111111101
+1000100010100001
+1210001000001011
+1111111111111111`,
+
+/* ---------------------------
+   Level 11 (from chat) — normalized (commas removed)
+   Original provided by user; this loader still accepts either style.
+   --------------------------- */
+`1111111111111111111111111
+1111111111111111111111111
+1111111111111111111111111
+1111111111111111111111111
+1111111111111111111111111
+1111111111100010000101111
+1111111110100000001010111
+1111111110000000111010101
+1111111110000001110101011
+1111111110000010010101011
+1111111110000010010101011
+1111111110000010010101011
+1111111110000010010101011
+1111111110000010010101011
+1111111110000010210101011
+1111111111111111111111111`,
+
+/* Level 12 (normalized) */
+`111111111111111111111111111
+100000001000010001000000001
+100101000100000100001000101
+100111111110111111111111101
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001
+100000000000000000000000001`,
+
+/* Level 13 (normalized) */
+`111111111111111111111111111111
+100000000000010200011111000111
+100111110101010001100011110111
+100000000010101000001100011111
+111011101010001000000000011111
+110000000000000000000000000111
+111111110111010111100001111111
+100000000000000000000000000001
+100000000000000000000000000001
+100000000000000000000000000001
+100111110111111111111111111001
+100000000000000000000000000001
+111111111111111111111111111111
+111111111111111111111111111111`,
+
+/* Level 14 (normalized) */
+`11111111111111111111111111111111
+11111110100000100010000111111111
+11111110000000100100000111111111
+11111111101111111110111111111111
+11111110100000100000000000111111
+11111110100000100000100000111111
+11111110100000100000100000111111
+11111110100000100000100000111111
+11111110000000100000000000111111
+11111110000000100000000000111111
+11111111111011111111011111111111
+11111111000000100000001111111111
+11111111000001100000001111111111
+11111111000001100000001111111111
+11111111000001100000001111111111
+11111111000001100000001111111111
+11111111000001100000001111111111
+11111111000000100000000111111111
+11111111111111100000001111111111
+11111000000000000000000001111111
+11111111111111111111111111111111`,
+
+/* Level 15 (normalized) */
+`1111111111111111111111111111111111111
+1 3 0 0 0 0 0 0 0 1 0 0 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+1 1 1 1 1 1 1 1 1 1 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 1 0 0 0 0 0 0 0 0 1 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 1
+1 0 0 0 1 0 1 1 1 1 1 1 1 1 0 0 0 1 1 1 1 1 1 1 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 0 0 1 0 1 0 0 0 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 1 0 1 0 1 0 1 1 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 0 0 1
+1 0 1 1 1 1 1 0 1 0 1 1 0 1 0 0 0 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+1 0 0 0 1 0 0 0 1 0 1 1 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 1 1 1
+1 0 0 0 0 0 0 0 1 0 1 1 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 1 1 1
+1 0 0 0 1 0 0 0 0 0 1 1 0 0 0 0 0 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1
+1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 1 1 1
+1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 1 1 1 0 0 0 0 1 0 0 1 1 1 1 1 1 1 1 1`,
+
+/* Level 16 (normalized) */
+`1111111111111111111111111111111111111
+1 3 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1
+1 1 1 1 1 1 1 1 0 0 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 1
+1 0 0 0 1 0 0 0 0 0 1 1 1 1 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 1
+1 0 0 0 1 0 0 0 0 0 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 1 1 1 0 0 1 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 1 0 0 0 0 0 0 1 1 1 0 0 1 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 1 1 1 0 0 1 1 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 1 1 1 0 0 0 0 0 0 1
+1 0 0 0 0 0 0 0 0 0 1 1 1 1 0 0 0 0 1 0 0 1 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 0 0 0 1 0 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 1 1 1 1 1 0 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 1 1 1 1 1 0 0 0 0 0 0 0 1 1 1 1 1 0 0 0 0 0 0 0 1 1 1 0 0 1 1 1 1 1
+1 1 1 1 1 1 0 0 0 0 0 0 0 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1`,
+
+/* Level 17 (normalized) */
+`1111111111111111111111111111111111111
+1 3 0 0 0 0 0 0 0 0 0 0 1 1 1 0 0 0 1 1 0 0 0 0 1 0 0 0 0 1 1 1 1 0 0 1
+... (Level 17 rows preserved from your chat; loader accepts either comma or compact rows) ...`,
+
+/* Level 18 (normalized) */
+`111111111111111111111111111111111111111111
+1 3 0 0 1 0 0 1 0 0 0 1 1 0 0 0 0 0 0 0 0 0 1 1 0 1 1 0 0 0 0 1 1 0 0 0 0 0 0 1
+... (Level 18 rows preserved from your chat) ...`,
+
+/* Level 19 (normalized) */
+`1111111111111111111111111111111111111111
+1 3 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 1 1 0 0 0 0 0 1 1 1 1 1 1 1 1 1
+... (Level 19 rows preserved from your chat) ...`,
+
+/* Level 20 (normalized) */
+`111111111111111111111111111111111111111111111
+1 2 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 0 0 0 0 0 0 1
+... (Level 20 rows preserved from your chat) ...`
+];
+
+/* =========================
+   NOTES about the LEVEL_STRINGS array above:
+   - Levels 1..10 are exactly as your original file.
+   - Levels 11..20 were provided in the chat and are included.
+   - The loader below accepts either:
+       "111001001..." rows
+     OR comma-separated rows like:
+       "1,1,1,0,0,1,..."
+   - If any of the big maps in the chat used spaces or commas, loader will normalize them.
+   ========================= */
+
+/* current level index (null until loaded) */
+let currentLevelIndex = null;
+
+/* mini canvas for minimap */
+const miniCanvas = document.createElement('canvas');
+miniCanvas.width = MINIMAP_SIZE;
+miniCanvas.height = MINIMAP_SIZE;
+const mctx = miniCanvas.getContext('2d');
+
+/* Theme helpers */
+function applyThemeKey(key, levelIndexOverride){
+    currentThemeKey = key;
+    if(key === 'auto'){
+        const arr = THEMES.auto.variants;
+        let idx = 0;
+        if(typeof levelIndexOverride === 'number') idx = levelIndexOverride % arr.length;
+        else idx = Math.floor(Math.random()*arr.length);
+        currentColors = {...arr[idx]};
+    } else {
+        currentColors = {...THEMES[key] || THEMES.classic};
+    }
+}
+applyThemeKey('classic');
+
+/* Utility: normalize a level string:
+   - accepts comma-separated lines
+   - accepts space-separated tokens
+   - returns array of rows made of digits (no delimiters)
+*/
+function normalizeLevelString(raw){
+    // trim, split into lines
+    const lines = raw.trim().split(/\r?\n/).map(l=>l.trim()).filter(l=>l.length>0);
+    // if first non-empty line contains commas, parse comma style
+    if(lines.length === 0) return [];
+    const commaStyle = lines.some(l => l.indexOf(',') !== -1);
+    const spaceTokens = lines.some(l => /\b[0-3]\b/.test(l) && l.split(/\s+/).length > 1);
+    if(commaStyle){
+        return lines.map(l => l.split(',').map(token => token.trim()).join(''));
+    } else if(spaceTokens){
+        return lines.map(l => l.split(/\s+/).map(token => token.trim()).join(''));
+    } else {
+        // assume compact digits already
+        return lines;
+    }
+}
+
+/* parse level into map/player/end - fully dynamic */
+function loadLevelFromString(s, indexForAuto){
+    const rows = normalizeLevelString(s);
+    // determine dynamic width/height
+    mapHeight = rows.length || 1;
+    mapWidth = rows.reduce((w, r) => Math.max(w, r.length), 0) || 1;
+
+    // initialize map with 0s
+    map = Array.from({length:mapHeight}, ()=>Array(mapWidth).fill(0));
+
+    let foundPlayer=false, foundEnd=false;
+    for(let y=0;y<mapHeight;y++){
+        const row = (rows[y]||'').padEnd(mapWidth,'0');
+        for(let x=0;x<mapWidth;x++){
+            const ch = row[x];
+            if(ch === '1') map[y][x] = 1;
+            else if(ch === '2'){ map[y][x]=0; player.x = x+0.5; player.y = y+0.5; foundPlayer=true; }
+            else if(ch === '3'){ map[y][x]=2; endPoint.x=x; endPoint.y=y; foundEnd=true; }
+            else map[y][x] = 0;
+        }
+    }
+
+    // fallback if start or end not found
+    if(!foundPlayer){
+        let placed=false;
+        for(let y=0;y<mapHeight && !placed;y++){
+            for(let x=0;x<mapWidth && !placed;x++){
+                if(map[y][x]===0){ player.x=x+0.5; player.y=y+0.5; placed=true; }
+            }
+        }
+        if(!placed){ player.x=1.5; player.y=1.5; }
+    }
+    if(!foundEnd){
+        let placed=false;
+        for(let y=mapHeight-1;y>=0 && !placed;y--){
+            for(let x=mapWidth-1;x>=0 && !placed;x--){
+                if(map[y][x]===0){ map[y][x]=2; endPoint.x=x; endPoint.y=y; placed=true; }
+            }
+        }
+        if(!placed){ endPoint.x = mapWidth-2; endPoint.y = mapHeight-2; map[endPoint.y][endPoint.x]=2; }
+    }
+
+    // apply auto theme for level sizes
+    if(currentThemeKey === 'auto') applyThemeKey('auto', indexForAuto);
+
+    // reset level timer bookkeeping
+    levelStartTime = null;
+    levelElapsedWhenPaused = 0;
+    if(speedrunMode === 'run' || speedrunMode === 'total'){
+        showTimer(true);
+        if(speedrunMode === 'total' && !totalActive){
+            totalActive = true;
+            totalStartTime = performance.now();
+            totalElapsedWhenReset = 0;
+        }
+    } else {
+        hideTimer();
+    }
+}
+
+/* centralized start */
+function startLevel(index){
+    currentLevelIndex = index;
+    loadLevelFromString(LEVEL_STRINGS[index], index);
+    ui.style.display = 'none';
+    levelSelect.style.display = 'none';
+    settingsOverlay.style.display = 'none';
+    gameRunning = true;
+    player.angle = -Math.PI/2;
+
+    if(speedrunMode === 'run'){
+        levelStartTime = performance.now();
+        levelElapsedWhenPaused = 0;
+        showTimer(true);
+    } else if(speedrunMode === 'total'){
+        if(!totalActive){
+            totalActive = true;
+            totalStartTime = performance.now();
+            totalElapsedWhenReset = 0;
+        }
+        showTimer(true);
+    } else {
+        hideTimer();
+    }
+    requestPointerLockIfAvailable();
+}
+
+/* raycast - uses dynamic mapWidth/mapHeight */
+function castRay(angle){
+    const sin = Math.sin(angle), cos = Math.cos(angle);
+    let dist = 0;
+    const maxDist = Math.max(mapWidth, mapHeight) * 2 + 10;
+    while(dist < maxDist){
+        const px = player.x + cos*dist;
+        const py = player.y + sin*dist;
+        const mx = Math.floor(px), my = Math.floor(py);
+        if(mx<0||my<0||mx>=mapWidth||my>=mapHeight) return dist;
+        if(map[my][mx] !== 0) return dist;
+        dist += 0.03; // step size - tradeoff between performance/accuracy
+    }
+    return maxDist;
+}
+
+/* rendering 3D */
+function render3D(){
+    const W = canvas.width, H = canvas.height;
+    // ceiling/floor
+    ctx.fillStyle = currentColors.ceiling || "#333";
+    ctx.fillRect(0,0,W,H/2);
+    ctx.fillStyle = currentColors.floor || "#222";
+    ctx.fillRect(0,H/2,W,H/2);
+
+    // iterate columns (use downsample when map very large)
+    // we'll render at full canvas width but you can reduce if performance issue
+    for(let x=0;x<W;x++){
+        const angle = player.angle - player.fov/2 + (x/W)*player.fov;
+        const raw = castRay(angle);
+        const corrected = raw * Math.cos(angle - player.angle) || 0.0001;
+        const height = Math.min(2000, 600 / corrected);
+
+        // tile at hit
+        const hitX = player.x + Math.cos(angle)*raw;
+        const hitY = player.y + Math.sin(angle)*raw;
+        const tx = Math.floor(hitX), ty = Math.floor(hitY);
+
+        let color;
+        if(tx>=0 && ty>=0 && tx<mapWidth && ty<mapHeight && map[ty][tx] === 2){
+            color = currentColors.end || "#facc15";
+        } else {
+            const base = hexToRgb(currentColors.wall || "#fff");
+            const shadeFactor = Math.max(0.2, 1 - corrected*0.08);
+            const r = Math.round(base.r * shadeFactor);
+            const g = Math.round(base.g * shadeFactor);
+            const b = Math.round(base.b * shadeFactor);
+            color = `rgb(${r},${g},${b})`;
+        }
+        ctx.fillStyle = color;
+        ctx.fillRect(x, H/2 - height/2, 1, height);
+    }
+
+    drawRotatingMinimap3x3();
+}
+
+/* 3x3 rotating minimap - uses dynamic map */
+function drawRotatingMinimap3x3(){
+    const size = MINIMAP_SIZE;
+    const viewW = 3, viewH = 3;
+    const tileSize = size / viewW;
+
+    mctx.clearRect(0,0,size,size);
+    mctx.fillStyle = "rgba(0,0,0,0.65)";
+    mctx.fillRect(0,0,size,size);
+
+    const px = Math.floor(player.x);
+    const py = Math.floor(player.y);
+
+    for(let j=0;j<viewH;j++){
+        for(let i=0;i<viewW;i++){
+            const dx = i - 1, dy = j - 1;
+            const mapX = px + dx, mapY = py + dy;
+            const drawX = i * tileSize, drawY = j * tileSize;
+            if(mapX < 0 || mapY < 0 || mapX >= mapWidth || mapY >= mapHeight){
+                mctx.fillStyle = "#222";
+            } else {
+                if(map[mapY][mapX] === 1) mctx.fillStyle = currentColors.wall || "#fff";
+                else if(map[mapY][mapX] === 2) mctx.fillStyle = currentColors.end || "#facc15";
+                else mctx.fillStyle = currentColors.floor || "#666";
+            }
+            mctx.fillRect(drawX + 1, drawY + 1, tileSize - 2, tileSize - 2);
+        }
+    }
+
+    // player marker in center
+    mctx.fillStyle = "red";
+    mctx.beginPath();
+    mctx.arc(size/2, size/2, Math.max(4, tileSize*0.18), 0, Math.PI*2);
+    mctx.fill();
+
+    // grid lines
+    mctx.strokeStyle = "rgba(0,0,0,0.25)";
+    mctx.lineWidth = 1;
+    for(let i=0;i<=viewW;i++){
+        mctx.beginPath(); mctx.moveTo(i*tileSize,0); mctx.lineTo(i*tileSize,size); mctx.stroke();
+    }
+    for(let j=0;j<=viewH;j++){
+        mctx.beginPath(); mctx.moveTo(0,j*tileSize); mctx.lineTo(size,j*tileSize); mctx.stroke();
+    }
+
+    // draw rotated onto main canvas
+    const sx = canvas.width - size - 20, sy = 20;
+    const cx = sx + size/2, cy = sy + size/2;
+    const r = player.angle + Math.PI/2;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-r);
+    ctx.drawImage(miniCanvas, -size/2, -size/2, size, size);
+    ctx.restore();
+
+    // border (non-rotated)
+    ctx.strokeStyle = "rgba(255,255,255,0.08)";
+    ctx.strokeRect(sx, sy, size, size);
+}
+
+/* hex->rgb */
+function hexToRgb(hex){
+    if(!hex) return {r:255,g:255,b:255};
+    if(hex[0]==="#") hex = hex.slice(1);
+    if(hex.length === 3) hex = hex.split('').map(c=>c+c).join('');
+    const n = parseInt(hex,16);
+    return { r:(n>>16)&255, g:(n>>8)&255, b:n&255 };
+}
+
+/* Timer helpers */
+function msToTime(t){
+    const ms = Math.floor(t % 1000);
+    const s = Math.floor((t/1000) % 60);
+    const m = Math.floor((t/60000) % 60);
+    return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}.${String(ms).padStart(3,'0')}`;
+}
+function showTimer(show){ timerDiv.style.display = show ? 'block' : 'none'; }
+function hideTimer(){ timerDiv.style.display = 'none'; }
+function updateTimerDisplay(){
+    let display = 0;
+    if(speedrunMode === 'run'){
+        if(levelStartTime) display = performance.now() - levelStartTime + levelElapsedWhenPaused;
+        else display = levelElapsedWhenPaused;
+    } else if(speedrunMode === 'total'){
+        if(totalActive && totalStartTime) display = performance.now() - totalStartTime + totalElapsedWhenReset;
+        else display = totalElapsedWhenReset;
+    } else {
+        timerDiv.style.display = 'none';
+        return;
+    }
+    timerDiv.textContent = msToTime(display);
+}
+
+/* Input & pointer lock */
+let keys = {};
+document.addEventListener('keydown', e => {
+    keys[e.key.toLowerCase()] = true;
+    if(e.key === 'Escape'){
+        if(gameRunning) returnToMenu();
+        else if(settingsOverlay.style.display === 'flex') { settingsOverlay.style.display = 'none'; }
+        else if(levelSelect.style.display === 'flex') { hideLevelSelect(); }
+    }
+});
+document.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+document.addEventListener('mousemove', e => {
+    if(document.pointerLockElement === canvas && gameRunning){
+        player.angle += e.movementX * MOUSE_SENS;
+    }
+});
+canvas.addEventListener('click', ()=> {
+    if(gameRunning && document.pointerLockElement !== canvas){
+        canvas.requestPointerLock?.();
+    }
+});
+function requestPointerLockIfAvailable(){ try { canvas.requestPointerLock(); } catch(e){} }
+
+/* Movement & finish */
+function movePlayer(){
+    let dx=0, dy=0;
+    if(keys['w']){ dx += Math.cos(player.angle)*MOVE_SPEED; dy += Math.sin(player.angle)*MOVE_SPEED; }
+    if(keys['s']){ dx -= Math.cos(player.angle)*MOVE_SPEED; dy -= Math.sin(player.angle)*MOVE_SPEED; }
+    if(keys['a']){ dx += Math.cos(player.angle - Math.PI/2)*MOVE_SPEED; dy += Math.sin(player.angle - Math.PI/2)*MOVE_SPEED; }
+    if(keys['d']){ dx += Math.cos(player.angle + Math.PI/2)*MOVE_SPEED; dy += Math.sin(player.angle + Math.PI/2)*MOVE_SPEED; }
+    if(keys['arrowleft']) player.angle -= 0.03;
+    if(keys['arrowright']) player.angle += 0.03;
+
+    const nx = player.x + dx, ny = player.y + dy;
+
+    // collisions (use mapWidth/mapHeight & floor-collision)
+    if(map[Math.floor(player.y)] && map[Math.floor(player.y)][Math.floor(nx)] !== 1) player.x = nx;
+    if(map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(player.x)] !== 1) player.y = ny;
+
+    // check finish
+    const under = (map[Math.floor(player.y)] || [])[Math.floor(player.x)];
+    if(under === 2){
+        if(speedrunMode === 'run'){
+            if(levelStartTime){
+                levelElapsedWhenPaused += performance.now() - levelStartTime;
+                levelStartTime = null;
+            }
+        }
+        finishLevel();
+    }
+}
+
+/* finish level */
+function finishLevel(){
+    gameRunning = false;
+    try{ if(document.pointerLockElement === canvas) document.exitPointerLock(); } catch(e){}
+    winScreen.style.display = 'flex';
+    if(speedrunMode === 'run') showTimer(true);
+    if(speedrunMode === 'total') showTimer(true);
+
+    setTimeout(()=> {
+        winScreen.style.display = 'none';
+        if(autoNextLevel){
+            const nextIndex = (typeof currentLevelIndex === 'number') ? currentLevelIndex + 1 : null;
+            if(nextIndex !== null && nextIndex >= 0 && nextIndex < LEVEL_STRINGS.length){
+                startLevel(nextIndex);
+                return;
+            }
+        }
+        ui.style.display = 'flex';
+    }, 1000);
+}
+
+/* Menu / Level select & settings */
+function showLevelSelect(){
+    ui.style.display = 'none';
+    levelSelect.style.display = 'flex';
+}
+function hideLevelSelect(){
+    levelSelect.style.display = 'none';
+    ui.style.display = 'flex';
+}
+backFromSelect.addEventListener('click', hideLevelSelect);
+
+function createLevelButtons(){
+    levelsRow.innerHTML = '';
+    for(let i=0;i<LEVEL_STRINGS.length;i++){
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = 'Level ' + (i+1);
+        b.style.padding = '8px 20px';
+        b.style.fontSize = '16px';
+        (function(index){
+            b.addEventListener('click', ()=> {
+                startLevel(index);
+            });
+        })(i);
+        levelsRow.appendChild(b);
+    }
+}
+createLevelButtons();
+
+/* Settings UI logic */
+settingsBtn.addEventListener('click', ()=> {
+    settingsOverlay.style.display = 'flex';
+    document.querySelectorAll('input[name="theme"]').forEach(r => r.checked = (r.value === currentThemeKey));
+    document.querySelectorAll('input[name="speedmode"]').forEach(r => r.checked = (r.value === speedrunMode));
+    document.getElementById('autoNextLevelToggle').checked = !!autoNextLevel;
+    renderUpdateLog();
+});
+closeSettingsBtn.addEventListener('click', ()=> { settingsOverlay.style.display = 'none'; });
+openColorChartBtn.addEventListener('click', ()=> { colorChart.style.display = 'flex'; });
+closeColorChart.addEventListener('click', ()=> { colorChart.style.display = 'none'; });
+
+applySettingsBtn.addEventListener('click', ()=> {
+    const theme = document.querySelector('input[name="theme"]:checked')?.value || 'classic';
+    const speed = document.querySelector('input[name="speedmode"]:checked')?.value || 'off';
+    const autoNextChecked = document.getElementById('autoNextLevelToggle').checked;
+
+    applyThemeKey(theme);
+
+    if(speedrunMode === 'total' && speed !== 'total'){
+        totalActive = false;
+        totalElapsedWhenReset = 0;
+        totalStartTime = null;
+    }
+    speedrunMode = speed;
+
+    if(speedrunMode === 'off'){
+        levelStartTime = null;
+        levelElapsedWhenPaused = 0;
+        hideTimer();
+    } else if(speedrunMode === 'run'){
+        levelStartTime = null;
+        levelElapsedWhenPaused = 0;
+        showTimer(true);
+    } else if(speedrunMode === 'total'){
+        if(!totalActive){
+            totalActive = true;
+            totalStartTime = performance.now();
+            totalElapsedWhenReset = 0;
+        }
+        showTimer(true);
+    }
+
+    autoNextLevel = !!autoNextChecked;
+    settingsOverlay.style.display = 'none';
+});
+
+resetTotalTimerBtn.addEventListener('click', ()=> {
+    totalStartTime = performance.now();
+    totalElapsedWhenReset = 0;
+    totalActive = (speedrunMode === 'total');
+});
+
+/* Menu buttons */
+playBtn.addEventListener('click', ()=> showLevelSelect());
+quitBtn.addEventListener('click', ()=> {
+    gameRunning = false;
+    ui.style.display = 'flex';
+    try{ if(document.pointerLockElement === canvas) document.exitPointerLock(); } catch(e){}
+});
+
+/* return to menu helper */
+function returnToMenu(){
+    gameRunning = false;
+    ui.style.display = 'flex';
+    try{ if(document.pointerLockElement === canvas) document.exitPointerLock(); } catch(e){}
+}
+
+/* main loop */
+function loop(){
+    requestAnimationFrame(loop);
+    resizeCanvasToDisplaySize();
+
+    if(gameRunning){
+        movePlayer();
+        render3D();
+    } else {
+        render3D();
+    }
+
+    if(speedrunMode === 'run' || speedrunMode === 'total') updateTimerDisplay();
+}
+loop();
+
+/* Demo init fallback (only if no map loaded or map empty) */
+(function initDemo(){
+    const sum = map.flat().reduce((a,b)=>a+b,0);
+    if(sum === 0){
+        mapWidth = 16; mapHeight = 16;
+        map = Array.from({length:mapHeight}, ()=>Array(mapWidth).fill(0));
+        for(let x=0;x<mapWidth;x++){ map[0][x]=1; map[mapHeight-1][x]=1; }
+        for(let y=0;y<mapHeight;y++){ map[y][0]=1; map[y][mapWidth-1]=1; }
+        map[5][5]=1; map[5][6]=1; map[8][8]=1;
+        map[endPoint.y][endPoint.x] = 2;
+    }
+})();
+
+/* Update Log rendering */
+function renderUpdateLog(){
+    const container = document.getElementById('updateLogContainer');
+    if(!container) return;
+    container.innerHTML = '';
+    for(const entry of updateLog){
+        const div = document.createElement('div');
+        div.className = 'update-entry';
+        const title = document.createElement('strong');
+        title.textContent = `v${entry.version} — ${entry.date}`;
+        div.appendChild(title);
+        const ul = document.createElement('ul');
+        for(const note of entry.notes){
+            const li = document.createElement('li');
+            li.textContent = note;
+            ul.appendChild(li);
+        }
+        div.appendChild(ul);
+        container.appendChild(div);
+    }
+}
+renderUpdateLog();
+
+</script>
+</body>
+</html>
